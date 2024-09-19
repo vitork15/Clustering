@@ -75,7 +75,7 @@ class gaussiankernelKM:
                     temp_cluster = i
                     max_distance = distance
             for k in range(cluster_num):
-                if(i == temp_cluster): self.membership_vector[i][k] = 1
+                if(k == temp_cluster): self.membership_vector[i][k] = 1
                 else: self.membership_vector[i][k] = 0
 
         self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on t = 0
@@ -117,7 +117,7 @@ class gaussiankernelKM:
                 if(winning_cluster != membership):
                     test = True
                     for k in range(cluster_num):
-                        if(i == winning_cluster): self.membership_vector[i][k] = 1
+                        if(k == winning_cluster): self.membership_vector[i][k] = 1
                         else: self.membership_vector[i][k] = 0
 
             self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on current step

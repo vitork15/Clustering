@@ -93,6 +93,7 @@ class kernelKM:
                     max_distance = distance
             for k in range(cluster_num):
                 if(k == temp_cluster): self.membership_vector[i][k] = 1
+                if(k == temp_cluster): self.membership_vector[i][k] = 1
                 else: self.membership_vector[i][k] = 0
 
         self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on t = 0

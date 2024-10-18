@@ -36,6 +36,7 @@ class kernelKM:
         self.dataset = []
         self.cluster_num = 0
         self.adequacy_history = [] # Saves the history of the adequacy criterion over the steps
+        self.fuzzifier = 1
 
     def kernel(self, value, prototype, width_term):
         return np.exp(-euclidian_distance(value, prototype)/width_term)
@@ -50,13 +51,35 @@ class kernelKM:
         for i in range(len(self.dataset)):
             self.width_vector[i] = (np.quantile(distance_vector,0.1)+np.quantile(distance_vector,0.9))/2
 
-    def calculate_adequacy(self, fuzzifier=1):
+    def calculate_adequacy(self):
         data_num = len(self.dataset)
         adequacy = 0
         for k in range(self.cluster_num):
             for i in range(data_num):
-                adequacy += (self.membership_vector[i][k]**fuzzifier)*2*(1-self.kernel(self.dataset[i],self.prototype_vector[k],self.width_vector[i]))
+                adequacy += (self.membership_vector[i][k]**self.fuzzifier)*2*(1-self.kernel(self.dataset[i],self.prototype_vector[k],self.width_vector[i]))
         return adequacy
+    
+    def calculate_adequacy_index(self,cluster):
+        data_num = len(self.dataset)
+        adequacy_index = 0
+        for i in range(data_num):
+            adequacy_index += (self.membership_vector[i][cluster]**self.fuzzifier)*2*(1-self.kernel(self.dataset[i],self.prototype_vector[cluster],self.width_vector[i]))
+        return adequacy_index
+    
+    def calculate_dispersion_index(self, cluster):
+        data_num = len(self.dataset)
+        dispersion_index = 0
+        for i in range(data_num):
+            dispersion_index += (self.membership_vector[i][cluster]**self.fuzzifier)*2*(1-self.kernel(self.dataset[i],self.global_prototype,self.width_vector[i]))
+        return dispersion_index
+    
+    def calculate_dispersion(self):
+        data_num = len(self.dataset)
+        dispersion = 0
+        for k in range(self.cluster_num):
+            for i in range(data_num):
+                dispersion += (self.membership_vector[i][k]**self.fuzzifier)*2*(1-self.kernel(self.dataset[i],self.global_prototype,self.width_vector[i]))
+        return dispersion
     
     def fuzzy_to_hard(self): # Converts a fuzzy membership matrix into a discrete one for interpretation purposes
         hard_membership_vector = [[0 for col in range(self.cluster_num)] for row in range(len(self.dataset))]
@@ -174,6 +197,7 @@ class kernelKM:
         self.global_prototype = [0 for col in range(feature_num)]
         self.membership_vector = [[0 for col in range(cluster_num)] for row in range(data_num)]
         self.adequacy_history = []
+        self.fuzzifier = fuzzifier
 
         self.estimate_width_vector()
 
@@ -200,7 +224,7 @@ class kernelKM:
                 for k in zeros:
                     self.membership_vector[i][k] = 1/len(zeros)
 
-        self.adequacy_history.append(self.calculate_adequacy(fuzzifier)) # Save adequacy criterion on t = 0
+        self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on t = 0
         
         while(True):
             # First iterative step: Compute new prototypes based on current data points membership
@@ -242,7 +266,7 @@ class kernelKM:
                     for k in zeros:
                         self.membership_vector[i][k] = 1/len(zeros)
 
-            self.adequacy_history.append(self.calculate_adequacy(fuzzifier)) # Save adequacy criterion on current step
+            self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on current step
 
             if(abs(self.adequacy_history[-1] - self.adequacy_history[-2]) < epsilon or t > max_iterations): break # Stopping condition
 
@@ -283,6 +307,7 @@ def hard_clustering_test(test_dataset, classes):
     print("")
     for i in range(model.cluster_num):
         print(f"TRUE CLASS {i} ELEMENTS: {true_classes[i]}")
+    return model
 
 def fuzzy_clustering_test(test_dataset, classes):
     model = kernelKM(gaussian_kernel, estimate_width_term(test_dataset))
@@ -307,13 +332,19 @@ def fuzzy_clustering_test(test_dataset, classes):
         print(f"CLASS {i} ELEMENTS: {class_elements[i]}")
     print("")
     for i in range(model.cluster_num):
-        print(f"TRUE CLASS {i} ELEMENTS: {true_classes[i]}")    
+        print(f"TRUE CLASS {i} ELEMENTS: {true_classes[i]}")
+    return model
 
 def main():
     iris = sk.load_iris()
     test_dataset = iris['data']
     classes = iris['target']
-    fuzzy_clustering_test(test_dataset, classes)
+    model = fuzzy_clustering_test(test_dataset, classes)
+    heterogeneity = 1-(model.calculate_adequacy()/model.calculate_dispersion())
+    print(f"Heterogeneity: {heterogeneity}")
+    het_vector = [1-(model.calculate_adequacy_index(k)/model.calculate_dispersion_index(k)) for k in range(model.cluster_num)]
+    print(f"Cluster heterogeneity: {het_vector}")
+    
 
 if __name__ == "__main__":
     main()

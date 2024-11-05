@@ -39,7 +39,7 @@ def gaussian_kernel_local(value, prototype, cluster, width_local):
     return np.exp(-distance)
 
 class kernelKM:
-    
+
     def __init__(self, kernel, *kernel_args):
         self.prototype_vector = []
         self.global_prototype = None
@@ -49,6 +49,7 @@ class kernelKM:
         self.dataset = []
         self.cluster_num = 0
         self.adequacy_history = [] # Saves the history of the adequacy criterion over the steps
+        self.cm_history = []
         self.fuzzifier = 1
 
     def calculate_adequacy(self):
@@ -58,21 +59,21 @@ class kernelKM:
             for i in range(data_num):
                 adequacy += (self.membership_vector[i][k]**self.fuzzifier)*2*(1-self.kernel(self.dataset[i],self.prototype_vector[k],*self.kernel_args))
         return adequacy
-    
+
     def calculate_adequacy_index(self,cluster):
         data_num = len(self.dataset)
         adequacy_index = 0
         for i in range(data_num):
             adequacy_index += (self.membership_vector[i][cluster]**self.fuzzifier)*2*(1-self.kernel(self.dataset[i],self.prototype_vector[cluster],*self.kernel_args))
         return adequacy_index
-    
+
     def calculate_dispersion_index(self, cluster):
         data_num = len(self.dataset)
         dispersion_index = 0
         for i in range(data_num):
             dispersion_index += (self.membership_vector[i][cluster]**self.fuzzifier)*2*(1-self.kernel(self.dataset[i],self.global_prototype,*self.kernel_args))
         return dispersion_index
-    
+
     def calculate_dispersion(self):
         data_num = len(self.dataset)
         dispersion = 0
@@ -80,7 +81,7 @@ class kernelKM:
             for i in range(data_num):
                 dispersion += (self.membership_vector[i][k]**self.fuzzifier)*2*(1-self.kernel(self.dataset[i],self.global_prototype,*self.kernel_args))
         return dispersion
-    
+
     def fuzzy_to_hard(self): # Converts a fuzzy membership matrix into a discrete one for interpretation purposes
         hard_membership_vector = [[0 for col in range(self.cluster_num)] for row in range(len(self.dataset))]
         for i in range(len(self.membership_vector)):
@@ -127,7 +128,7 @@ class kernelKM:
                 else: self.membership_vector[i][k] = 0
 
         self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on t = 0
-        
+
         while(True):
             # First iterative step: Compute new prototypes based on current data points membership
             t = t + 1
@@ -169,7 +170,7 @@ class kernelKM:
             self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on current step
 
             if(test == False): break # If none of the data points get modified, stop the algorithm
-                
+
     def hard_cluster_with_reinitialization(self, dataset, cluster_num, reinitializations=5):
         self.hard_cluster(dataset, cluster_num)
         current_adequacy = self.adequacy_history[-1]
@@ -184,7 +185,7 @@ class kernelKM:
 
 
     def fuzzy_cluster(self, dataset, cluster_num, fuzzifier=2, max_iterations=50, epsilon=1e-12):
-        
+
         random.seed()
 
         # Initialization
@@ -223,7 +224,7 @@ class kernelKM:
                     self.membership_vector[i][k] = 1/len(zeros)
 
         self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on t = 0
-        
+
         while(True):
             # First iterative step: Compute new prototypes based on current data points membership
             t = t + 1
@@ -244,6 +245,8 @@ class kernelKM:
                         total_sum += (self.membership_vector[i][k]**fuzzifier)*self.kernel(self.dataset[i], self.global_prototype, *self.kernel_args)*self.dataset[i][j]
                         weight_sum += (self.membership_vector[i][k]**fuzzifier)*self.kernel(self.dataset[i], self.global_prototype, *self.kernel_args)
                     self.global_prototype[j] = total_sum/weight_sum
+
+            self.adequacy_history.append(self.calculate_adequacy())
 
             # Second iterative step: Modify data points membership based on the new prototypes
 
@@ -266,22 +269,31 @@ class kernelKM:
 
             self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on current step
 
-            if(abs(self.adequacy_history[-1] - self.adequacy_history[-2]) < epsilon or t > max_iterations): break # Stopping condition
+            if(abs(self.adequacy_history[-1] - self.adequacy_history[-3]) < epsilon or t > max_iterations): break # Stopping condition
 
-    def fuzzy_cluster_with_reinitialization(self, dataset, cluster_num, reinitializations=5, fuzzifier=2, max_iterations=50, epsilon=1e-12):
+    def fuzzy_cluster_with_reinitialization(self, dataset, cluster_num, reinitializations=5, fuzzifier=2, max_iterations=50, epsilon=1e-12, classes=None):
         self.fuzzy_cluster(dataset, cluster_num, fuzzifier, max_iterations, epsilon)
         current_adequacy = self.adequacy_history[-1]
         current_solution = (self.prototype_vector, self.membership_vector, self.global_prototype, self.adequacy_history)
+        crispy_m = self.fuzzy_to_hard()
+        pred = [[n for n, m in enumerate(crispy_m[i]) if m==1][0] for i in range(len(dataset))]
+        cm = confusion_matrix(classes, pred, labels=range(self.cluster_num))
+        self.cm_history.append((cm,self.calculate_adequacy(),self.prototype_vector))
         while reinitializations > 0:
             self.fuzzy_cluster(dataset, cluster_num, fuzzifier, max_iterations, epsilon)
             if(current_adequacy > self.adequacy_history[-1]):
                 current_adequacy = self.adequacy_history[-1]
                 current_solution = (self.prototype_vector, self.membership_vector, self.global_prototype, self.adequacy_history)
             reinitializations = reinitializations - 1
+            crispy_m = self.fuzzy_to_hard()
+            pred = [[n for n, m in enumerate(crispy_m[i]) if m==1][0] for i in range(len(dataset))]
+            cm = confusion_matrix(classes, pred, labels=range(self.cluster_num))
+            self.cm_history.append((cm,self.calculate_adequacy(),self.prototype_vector))
         self.prototype_vector, self.membership_vector, self.global_prototype, self.adequacy_history = current_solution
 
+
 class kernelKM_PG:
-    
+
     def __init__(self):
         self.prototype_vector = []
         self.global_prototype = None
@@ -291,6 +303,7 @@ class kernelKM_PG:
         self.dataset = []
         self.cluster_num = 0
         self.adequacy_history = [] # Saves the history of the adequacy criterion over the steps
+        self.cm_history = []
         self.fuzzifier = 1
 
     def calculate_adequacy(self):
@@ -300,7 +313,7 @@ class kernelKM_PG:
             for i in range(data_num):
                 adequacy += (self.membership_vector[i][k]**self.fuzzifier)*2*(1-self.kernel(self.dataset[i],self.prototype_vector[k],self.width_vector))
         return adequacy
-    
+
     def fuzzy_to_hard(self): # Converts a fuzzy membership matrix into a discrete one for interpretation purposes
         hard_membership_vector = [[0 for col in range(self.cluster_num)] for row in range(len(self.dataset))]
         for i in range(len(self.membership_vector)):
@@ -309,7 +322,7 @@ class kernelKM_PG:
         return hard_membership_vector
 
     def fuzzy_cluster(self, dataset, cluster_num, fuzzifier=2, max_iterations=50, epsilon=1e-12, gamma=1, theta=1e-10):
-        
+
         random.seed()
 
         # Initialization
@@ -348,7 +361,7 @@ class kernelKM_PG:
                     self.membership_vector[i][k] = 1/len(zeros)
 
         self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on t = 0
-        
+
         while(True):
             # First iterative step: Compute new widths
             t = t + 1
@@ -380,7 +393,7 @@ class kernelKM_PG:
             # Second iterative step: Compute new prototypes based on current data points membership and current widths
 
             for k in range(self.cluster_num):
-                for j in above_theta:
+                for j in range(feature_num):
                     total_sum = 0
                     weight_sum = 0 
                     for i in range(data_num):
@@ -411,20 +424,28 @@ class kernelKM_PG:
 
             if(abs(self.adequacy_history[-1] - self.adequacy_history[-2]) < epsilon or t > max_iterations): break # Stopping condition
 
-    def fuzzy_cluster_with_reinitialization(self, dataset, cluster_num, reinitializations=5, fuzzifier=2, max_iterations=300, epsilon=1e-12, gamma=1, theta=1e-10):
+    def fuzzy_cluster_with_reinitialization(self, dataset, cluster_num, reinitializations=5, fuzzifier=2, max_iterations=300, epsilon=1e-12, gamma=1, theta=1e-10, classes=None):
         self.fuzzy_cluster(dataset, cluster_num, fuzzifier, max_iterations, epsilon, gamma, theta)
         current_adequacy = self.adequacy_history[-1]
-        current_solution = (self.prototype_vector, self.membership_vector, self.adequacy_history, self.width_vector)
+        current_solution = (self.prototype_vector, self.membership_vector, self.adequacy_history, self.width_matrix)
+        crispy_m = self.fuzzy_to_hard()
+        pred = [[n for n, m in enumerate(crispy_m[i]) if m==1][0] for i in range(len(dataset))]
+        cm = confusion_matrix(classes, pred, labels=range(self.cluster_num))
+        self.cm_history.append((cm,self.calculate_adequacy(),self.prototype_vector,self.width_vector))
         while reinitializations > 0:
             self.fuzzy_cluster(dataset, cluster_num, fuzzifier, max_iterations, epsilon, gamma, theta)
             if(current_adequacy > self.adequacy_history[-1]):
                 current_adequacy = self.adequacy_history[-1]
-                current_solution = (self.prototype_vector, self.membership_vector, self.adequacy_history, self.width_vector)
+                current_solution = (self.prototype_vector, self.membership_vector, self.adequacy_history, self.width_matrix)
             reinitializations = reinitializations - 1
-        self.prototype_vector, self.membership_vector, self.adequacy_history, self.width_vector = current_solution
+            crispy_m = self.fuzzy_to_hard()
+            pred = [[n for n, m in enumerate(crispy_m[i]) if m==1][0] for i in range(len(dataset))]
+            cm = confusion_matrix(classes, pred, labels=range(self.cluster_num))
+            self.cm_history.append((cm,self.calculate_adequacy(),self.prototype_vector,self.width_vector))
+        self.prototype_vector, self.membership_vector, self.adequacy_history, self.width_matrix = current_solution
 
 class kernelKM_PL:
-    
+
     def __init__(self):
         self.prototype_vector = []
         self.global_prototype = None
@@ -435,6 +456,8 @@ class kernelKM_PL:
         self.cluster_num = 0
         self.adequacy_history = [] # Saves the history of the adequacy criterion over the steps
         self.fuzzifier = 1
+        self.cm_history = []
+        self.cm_history = []
 
     def calculate_adequacy(self):
         data_num = len(self.dataset)
@@ -443,7 +466,7 @@ class kernelKM_PL:
             for i in range(data_num):
                 adequacy += (self.membership_vector[i][k]**self.fuzzifier)*2*(1-self.kernel(self.dataset[i],self.prototype_vector[k],k,self.width_matrix))
         return adequacy
-    
+
     def fuzzy_to_hard(self): # Converts a fuzzy membership matrix into a discrete one for interpretation purposes
         hard_membership_vector = [[0 for col in range(self.cluster_num)] for row in range(len(self.dataset))]
         for i in range(len(self.membership_vector)):
@@ -452,7 +475,7 @@ class kernelKM_PL:
         return hard_membership_vector
 
     def fuzzy_cluster(self, dataset, cluster_num, fuzzifier=2, max_iterations=50, epsilon=1e-12, gamma=1, theta=1e-10):
-        
+
         random.seed()
 
         # Initialization
@@ -466,6 +489,7 @@ class kernelKM_PL:
         self.membership_vector = [[0 for col in range(cluster_num)] for row in range(data_num)]
         self.adequacy_history = []
         self.fuzzifier = fuzzifier
+
 
         t = 0
 
@@ -491,7 +515,7 @@ class kernelKM_PL:
                     self.membership_vector[i][k] = 1/len(zeros)
 
         self.adequacy_history.append(self.calculate_adequacy()) # Save adequacy criterion on t = 0
-        
+
         while(True):
             # First iterative step: Compute new widths
             t = t + 1
@@ -557,16 +581,24 @@ class kernelKM_PL:
 
             if(abs(self.adequacy_history[-1] - self.adequacy_history[-2]) < epsilon or t > max_iterations): break # Stopping condition
 
-    def fuzzy_cluster_with_reinitialization(self, dataset, cluster_num, reinitializations=5, fuzzifier=2, max_iterations=300, epsilon=1e-12, gamma=1, theta=1e-10):
+    def fuzzy_cluster_with_reinitialization(self, dataset, cluster_num, reinitializations=5, fuzzifier=2, max_iterations=300, epsilon=1e-12, gamma=1, theta=1e-10, classes=None):
         self.fuzzy_cluster(dataset, cluster_num, fuzzifier, max_iterations, epsilon, gamma, theta)
         current_adequacy = self.adequacy_history[-1]
         current_solution = (self.prototype_vector, self.membership_vector, self.adequacy_history, self.width_matrix)
+        crispy_m = self.fuzzy_to_hard()
+        pred = [[n for n, m in enumerate(crispy_m[i]) if m==1][0] for i in range(len(dataset))]
+        cm = confusion_matrix(classes, pred, labels=range(self.cluster_num))
+        self.cm_history.append((cm,self.calculate_adequacy(),self.prototype_vector,self.width_matrix))
         while reinitializations > 0:
             self.fuzzy_cluster(dataset, cluster_num, fuzzifier, max_iterations, epsilon, gamma, theta)
             if(current_adequacy > self.adequacy_history[-1]):
                 current_adequacy = self.adequacy_history[-1]
                 current_solution = (self.prototype_vector, self.membership_vector, self.adequacy_history, self.width_matrix)
             reinitializations = reinitializations - 1
+            crispy_m = self.fuzzy_to_hard()
+            pred = [[n for n, m in enumerate(crispy_m[i]) if m==1][0] for i in range(len(dataset))]
+            cm = confusion_matrix(classes, pred, labels=range(self.cluster_num))
+            self.cm_history.append((cm,self.calculate_adequacy(),self.prototype_vector,self.width_matrix))
         self.prototype_vector, self.membership_vector, self.adequacy_history, self.width_matrix = current_solution
 
 
@@ -598,15 +630,18 @@ def hard_clustering_testing(test_dataset, classes):
 
 def fuzzy_clustering_testing(test_dataset, classes):
     model = kernelKM(gaussian_kernel, estimate_width_term(test_dataset))
-    model.fuzzy_cluster_with_reinitialization(test_dataset, 3, fuzzifier=2)
+    model.fuzzy_cluster_with_reinitialization(test_dataset, 3, fuzzifier=1.1, classes=classes)
     hard_classes = model.fuzzy_to_hard()
     class_elements = [[] for i in range(model.cluster_num)]
     true_classes = [[] for i in range(model.cluster_num)]
+    step = 0
+    step_name = ["ATUALIZOU PROTOTIPO", "ATUALIZOU PERTINENCIA"]
     for k in range(1,len(model.adequacy_history)):
+        step = (step + 1) % 2
         if(model.adequacy_history[k-1]>model.adequacy_history[k]):
-            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, DIMINUIU")
+            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, DIMINUIU, {step_name[step]}")
         else:
-            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, AUMENTOU")
+            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, AUMENTOU, {step_name[step]}")
     print("")
     for i in range(len(model.prototype_vector)):
         print(model.prototype_vector[i])
@@ -620,19 +655,31 @@ def fuzzy_clustering_testing(test_dataset, classes):
     print("")
     for i in range(model.cluster_num):
         print(f"TRUE CLASS {i} ELEMENTS: {true_classes[i]}")
+
+    for cm in model.cm_history:
+        disp = ConfusionMatrixDisplay(cm[0], display_labels=range(model.cluster_num))
+        disp.plot()
+        plt.show()
+        print(f"J: {cm[1]}")
+        for i, prototype in enumerate(cm[2]):
+            print(f"PROTOTIPO CLASSE {i}: {prototype}")
+
     return model
 
 def fuzzy_clustering_global_testing(test_dataset, classes):
     model = kernelKM_PG()
-    model.fuzzy_cluster_with_reinitialization(test_dataset, 3, fuzzifier=2)
+    model.fuzzy_cluster_with_reinitialization(test_dataset, 3, fuzzifier=1.1, classes=classes)
     hard_classes = model.fuzzy_to_hard()
     class_elements = [[] for i in range(model.cluster_num)]
     true_classes = [[] for i in range(model.cluster_num)]
+    step = 0
+    step_name = ["ATUALIZOU PROTOTIPO", "ATUALIZOU PERTINENCIA"]
     for k in range(1,len(model.adequacy_history)):
+        step = (step + 1) % 2
         if(model.adequacy_history[k-1]>model.adequacy_history[k]):
-            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, DIMINUIU")
+            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, DIMINUIU, {step_name[step]}")
         else:
-            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, AUMENTOU")
+            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, AUMENTOU, {step_name[step]}")
     print("")
     for i in range(len(model.prototype_vector)):
         print(model.prototype_vector[i])
@@ -646,19 +693,32 @@ def fuzzy_clustering_global_testing(test_dataset, classes):
     print("")
     for i in range(model.cluster_num):
         print(f"TRUE CLASS {i} ELEMENTS: {true_classes[i]}")
+
+    for cm in model.cm_history:
+        disp = ConfusionMatrixDisplay(cm[0], display_labels=range(model.cluster_num))
+        disp.plot()
+        plt.show()
+        print(f"J: {cm[1]}")
+        for i, prototype in enumerate(cm[2]):
+            print(f"PROTOTIPO CLASSE {i}: {prototype}")
+        print(f"S: {cm[3]}")
+    
     return model
 
 def fuzzy_clustering_local_testing(test_dataset, classes):
     model = kernelKM_PL()
-    model.fuzzy_cluster_with_reinitialization(test_dataset, 3, fuzzifier=2)
+    model.fuzzy_cluster_with_reinitialization(test_dataset, 3, fuzzifier=1.1, classes=classes)
     hard_classes = model.fuzzy_to_hard()
     class_elements = [[] for i in range(model.cluster_num)]
     true_classes = [[] for i in range(model.cluster_num)]
+    step = 0
+    step_name = ["ATUALIZOU PROTOTIPO", "ATUALIZOU PERTINENCIA"]
     for k in range(1,len(model.adequacy_history)):
+        step = (step + 1) % 2
         if(model.adequacy_history[k-1]>model.adequacy_history[k]):
-            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, DIMINUIU")
+            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, DIMINUIU, {step_name[step]}")
         else:
-            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, AUMENTOU")
+            print(f"ITERAÇÃO {k} - J: {model.adequacy_history[k]}, AUMENTOU, {step_name[step]}")
     print("")
     for i in range(len(model.prototype_vector)):
         print(model.prototype_vector[i])
@@ -672,6 +732,17 @@ def fuzzy_clustering_local_testing(test_dataset, classes):
     print("")
     for i in range(model.cluster_num):
         print(f"TRUE CLASS {i} ELEMENTS: {true_classes[i]}")
+
+    for cm in model.cm_history:
+        disp = ConfusionMatrixDisplay(cm[0], display_labels=range(model.cluster_num))
+        disp.plot()
+        plt.show()
+        print(f"J: {cm[1]}")
+        for i, prototype in enumerate(cm[2]):
+            print(f"PROTOTIPO CLASSE {i}: {prototype}")
+        for k, width in enumerate(cm[3]):
+            print(f"S PARA CLUSTER {k}: {width}")
+            
     return model
 
 
@@ -680,13 +751,14 @@ def main():
     test_dataset = iris['data']
     classes = iris['target']
     model = fuzzy_clustering_local_testing(test_dataset, classes)
+
     crispy_m = model.fuzzy_to_hard()
     pred = [[n for n, m in enumerate(crispy_m[i]) if m==1][0] for i in range(len(test_dataset))]
     cm = confusion_matrix(classes, pred, labels=range(model.cluster_num))
     disp = ConfusionMatrixDisplay(cm, display_labels=range(model.cluster_num))
     disp.plot()
     plt.show()
-    
+
 
 if __name__ == "__main__":
     main()

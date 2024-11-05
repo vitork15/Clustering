@@ -18,6 +18,22 @@ string CSVFile::get_value(long long int row, long long int column) {
     return values[row][column];
 }
 
+string CSVFile::get_name(long long int column) {
+    return names[column];
+}
+
+vector<string> CSVFile::get_row(long long int row) {
+    return values[row];
+}
+
+vector<string> CSVFile::get_column(long long int column) {
+    vector<string> temp;
+    for(long long int i = 0; i<get_row_num(); i++) {
+        temp.push_back(values[i][column]);
+    }
+    return temp;
+}
+
 void CSVFile::edit_value(long long int row, long long int column, string newvalue) {
     if(row<get_row_num() && row >= 0 && column<get_column_num() && column >= 0) {
         values[row][column] = newvalue;
@@ -38,6 +54,7 @@ void CSVFile::clear() {
         values[i].clear();
     }
     values.clear();
+    names.clear();
     row_number = 0;
     column_number = 0;
     last_read.clear();
@@ -53,9 +70,24 @@ void CSVFile::read_file(string filename) {
 
     fin.open(filename+".csv", ios::in);
     if(fin.fail()) return;
-  
+    
+    // Definindo os nomes das colunas do CSV (primeira linha)
+
     vector<string> row; 
     string line, words;
+
+    getline(fin, line);
+    stringstream columns(line);
+
+    while(getline(columns, words, ',')) { 
+        row.push_back(words); 
+    }
+
+    if(column_number == 0) column_number = row.size();
+
+    names = row;
+
+    // Obtendo os valores
   
     while (getline(fin, line)) {
 
@@ -65,8 +97,6 @@ void CSVFile::read_file(string filename) {
         while(getline(columns, words, ',')) { 
             row.push_back(words); 
         }
-
-        if(column_number == 0) column_number = row.size();
 
         append_row(row);
     }
@@ -88,6 +118,21 @@ void CSVFile::read_file(string filename, long long int rows) {
   
     vector<string> row; 
     string line, words;
+
+    // Definindo os nomes das colunas do CSV (primeira linha)
+
+    getline(fin, line);
+    stringstream columns(line);
+
+    while(getline(columns, words, ',')) { 
+        row.push_back(words); 
+    }
+
+    if(column_number == 0) column_number = row.size();
+
+    names = row;
+
+    // Obtendo os valores até a "rows"-ésima linha
   
     for(long long int i = 0; i<rows; i++) {
 
@@ -99,8 +144,6 @@ void CSVFile::read_file(string filename, long long int rows) {
         while(getline(columns, words, ',')) { 
             row.push_back(words); 
         }
-
-        if(column_number == 0) column_number = row.size();
 
         append_row(row);
         row_number++;

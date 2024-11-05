@@ -6,12 +6,13 @@
 using namespace std;
 
 int main() {
-
+    // loading dataset using CSV
     CSVFile iris_dataset = CSVFile("iris");
 
-    //iris_dataset.print_file();
-    cout << iris_dataset.get_row_num() << endl;
-    cout << iris_dataset.get_column_num() << endl;
+    vector<string> types = iris_dataset.get_column(4);
+    for(int i = 0; i<types.size(); i++) {
+        cout << types[i] << endl;
+    }
 
-
+    return 0;
 }

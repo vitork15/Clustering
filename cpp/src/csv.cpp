@@ -34,6 +34,14 @@ vector<string> CSVFile::get_column(long long int column) {
     return temp;
 }
 
+vector<vector<string>> CSVFile::get_columns(long long int columns) {
+    vector<vector<string>> temp;
+    for(long long int i = 0; i<get_row_num(); i++) {
+        temp.push_back(vector<string>(values[i].begin(),values[i].begin()+columns));
+    }
+    return temp;
+}
+
 void CSVFile::edit_value(long long int row, long long int column, string newvalue) {
     if(row<get_row_num() && row >= 0 && column<get_column_num() && column >= 0) {
         values[row][column] = newvalue;

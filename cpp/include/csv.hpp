@@ -18,6 +18,7 @@ class CSVFile {
         string get_value(long long int row, long long int column);
         vector<string> get_row(long long int row);
         vector<string> get_column(long long int column);
+        vector<vector<string>> get_columns(long long int columns);
         void edit_value(long long int row, long long int column, string newvalue);
         void append_row(vector<string> row);
         CSVFile(string filename);

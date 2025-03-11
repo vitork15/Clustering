@@ -1,9 +1,10 @@
 import numpy as np
 import sklearn.datasets as sk
 import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, adjusted_rand_score
 import random
 import scipy.io
+import gmpy2
 
 
 class ICMKmodel:
@@ -44,7 +45,7 @@ class ICMKmodel:
                 for p in range(len(self.data[i])): # for each feature
                     value += self.membership_matrix[i][k]*self.interval_distance(i, k)
                 #entropy component
-                if(self.membership_matrix[i][k] != 0): value += self.T_u*self.membership_matrix[i][k]*np.log(self.membership_matrix[i][k]) #approx x*logx = 0 at x = 0
+                if(self.membership_matrix[i][k] > 1e-10): value += self.T_u*self.membership_matrix[i][k]*gmpy2.log(self.membership_matrix[i][k]) #approx x*logx = 0 at x = 0
             
         return value
         
@@ -122,16 +123,16 @@ class ICMKmodel:
                     
                 for j in range(feature_num):
                     # if division by zero is found, ignore until next step
-                    if(lower_distance[j] != 0): self.lower_boundary_weights[k][j] = prod/lower_distance[j]
-                    if(upper_distance[j] != 0): self.upper_boundary_weights[k][j] = prod/upper_distance[j]
+                    if(lower_distance[j] > 1e-10): self.lower_boundary_weights[k][j] = prod/lower_distance[j]
+                    if(upper_distance[j] > 1e-10): self.upper_boundary_weights[k][j] = prod/upper_distance[j]
                     
             #allocation step
             for i in range(data_num):
                 denominator = 0
                 for k in range(cluster_num):
-                    denominator += np.exp(-self.interval_distance(i, k))
+                    denominator += gmpy2.exp(-self.interval_distance(i, k)/self.T_u)
                 for k in range(cluster_num):
-                    self.membership_matrix[i][k] = np.exp(-self.interval_distance(i, k))/denominator
+                    self.membership_matrix[i][k] = gmpy2.exp(-self.interval_distance(i, k)/self.T_u)/denominator
                     
             self.adequacy_history.append(self.objective_function())
             
@@ -164,6 +165,11 @@ class ICMKmodel:
         cm = confusion_matrix(true_classes, pred, labels=range(self.cluster_num))
         
         return cm
+    
+    def predict(self):
+        crispy_m = self.crispy_membership()
+        prediction = [[n for n, m in enumerate(crispy_m[i]) if m==1][0] for i in range(len(self.data))]
+        return prediction
             
     def analyze(self):
         print(f"J INICIAL: {self.adequacy_history[0]}")
@@ -183,7 +189,7 @@ def loaddotmat(filename):
         data_point = []
         
         for i in range(1,len(array),2):
-            data_point.append([array[i],array[i+1]])
+            data_point.append([gmpy2.mpfr(array[i]),gmpy2.mpfr(array[i+1])])
             
         structured_data.append(data_point)
         classes.append(int(array[0]))
@@ -191,16 +197,22 @@ def loaddotmat(filename):
     return structured_data, classes
 
 def main():
-    data, classes = loaddotmat('Wine.mat')
+    gmpy2.get_context().precision = 200
+    
+    data, classes = loaddotmat('Car.mat')
     model = ICMKmodel()
-    model = model.run_many(data, max(classes), reinitializations=15, T_u = 10)
+    model = model.run_many(data, max(classes), max_iterations=50, reinitializations=5, T_u = 0.1)
     
     model.analyze()
+    
+    print(f"RAND SCORE AJUSTADO: ", adjusted_rand_score(classes, model.predict()))
     
     cm = model.confusion_matrix(classes)
     disp = ConfusionMatrixDisplay(cm, display_labels=range(model.cluster_num))
     disp.plot()
     plt.show() 
+    
+    #print(data)
 
 if __name__ == "__main__":
     main()

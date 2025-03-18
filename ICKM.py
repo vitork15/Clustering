@@ -45,7 +45,7 @@ class ICMKmodel:
                 for p in range(len(self.data[i])): # for each feature
                     value += self.membership_matrix[i][k]*self.interval_distance(i, k)
                 #entropy component
-                if(self.membership_matrix[i][k] > 1e-10): value += self.T_u*self.membership_matrix[i][k]*gmpy2.log(self.membership_matrix[i][k]) #approx x*logx = 0 at x = 0
+                if(self.membership_matrix[i][k] > 1e-10): value += self.T_u*self.membership_matrix[i][k]*np.log(self.membership_matrix[i][k]) #approx x*logx = 0 at x = 0
             
         return value
         
@@ -92,7 +92,7 @@ class ICMKmodel:
                     for i in range(data_num):
                         sum += self.membership_matrix[i][k]*(data[i][j][0]/weight_sum)
                         
-                    self.prototype_vector[k][j][0] = sum/weight_sum
+                    self.prototype_vector[k][j][0] = sum
                     #upper interval
                     weight_sum = 0
                     sum = 0
@@ -130,9 +130,9 @@ class ICMKmodel:
             for i in range(data_num):
                 denominator = 0
                 for k in range(cluster_num):
-                    denominator += gmpy2.exp(-self.interval_distance(i, k)/self.T_u)
+                    denominator += np.exp(-self.interval_distance(i, k)/self.T_u)
                 for k in range(cluster_num):
-                    self.membership_matrix[i][k] = gmpy2.exp(-self.interval_distance(i, k)/self.T_u)/denominator
+                    self.membership_matrix[i][k] = np.exp(-self.interval_distance(i, k)/self.T_u)/denominator
                     
             self.adequacy_history.append(self.objective_function())
             
@@ -161,8 +161,9 @@ class ICMKmodel:
     
     def confusion_matrix(self, true_classes):
         crispy_m = self.crispy_membership()
-        pred = [[n for n, m in enumerate(crispy_m[i]) if m==1][0] for i in range(len(self.data))]
-        cm = confusion_matrix(true_classes, pred, labels=range(self.cluster_num))
+        true_classes_index = np.unique(true_classes)
+        pred = [true_classes_index[[n for n, m in enumerate(crispy_m[i]) if m==1][0]] for i in range(len(self.data))]
+        cm = confusion_matrix(true_classes, pred, labels=true_classes_index)
         
         return cm
     
@@ -189,19 +190,31 @@ def loaddotmat(filename):
         data_point = []
         
         for i in range(1,len(array),2):
-            data_point.append([gmpy2.mpfr(array[i]),gmpy2.mpfr(array[i+1])])
+            data_point.append([array[i],array[i+1]])
             
         structured_data.append(data_point)
         classes.append(int(array[0]))
     
     return structured_data, classes
 
-def main():
-    gmpy2.get_context().precision = 200
+'''def rand_hullemeier(pred, true):
+    NotImplemented
     
-    data, classes = loaddotmat('Car.mat')
+def e_p(membership_matrix, k, j):
+    sum = 0
+    for i in range(len(membership_matrix[0])):
+        sum += abs(membership_matrix[k][i]-membership_matrix[j][i])
+        
+    return 1 - sum/2
+
+def e_q(pred, true):'''
+    
+
+def main():
+    
+    data, classes = loaddotmat('Fungi.mat')
     model = ICMKmodel()
-    model = model.run_many(data, max(classes), max_iterations=50, reinitializations=5, T_u = 0.1)
+    model = model.run_many(data, max(classes), max_iterations=50, reinitializations=100, T_u = 1)
     
     model.analyze()
     

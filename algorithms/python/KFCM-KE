@@ -5,6 +5,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, adjusted_r
 import random
 import scipy.io
 import itertools
+from utils import metrics
 
 
 class KFCM_KE:

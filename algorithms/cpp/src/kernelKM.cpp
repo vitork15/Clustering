@@ -22,7 +22,7 @@ double euclidian_distance(vector<double>& value1, vector<double>& value2) {
 double gaussian_kernel_local(vector<double>& value, vector<double>& prototype, long long int cluster, vector<vector<double>>& width_local) {
     double distance = 0;
     for(long long int j = 0; j<value.size(); j++) {
-        distance += ((value[j]-prototype[j])*(value[j]-prototype[j]))/(2*width_local[cluster][j]);
+        distance += ((value[j]-prototype[j])*(value[j]-prototype[j]))*width_local[cluster][j]/2;
     }
     return exp(-distance);
 }
@@ -334,7 +334,7 @@ int main() {
 
     kernelKM_PL model;
     //model.fit(dataf, 3, 1.05, 500, 1e-12, 1, 1e-8);
-    model.fit_reinit(dataf, 3, 2, 300, 1e-12, 1, 1e-10, 500);
+    model.fit_reinit(dataf, 3, 1.1, 300, 1e-12, 1, 1e-10, 500);
 
     vector<long long int> result = model.return_pred();
     vector<long long int> numbers = classes_to_number(true_types);

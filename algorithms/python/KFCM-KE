@@ -7,44 +7,42 @@ import scipy.io
 import itertools
 
 
-class ICMKmodel:
+class KFCM_KE:
 
     def __init__(self):
         self.prototype_vector = []
         #self.global_prototype = None
         self.membership_matrix = []
-        self.lower_boundary_weights = [] # Weights for lower bounds
-        self.upper_boundary_weights = [] # Weights for upper bounds
+        self.width_matrix = []
         self.data = []
         self.cluster_num = 0
         self.adequacy_history = [] # Saves the history of the adequacy criterion over the steps
         self.T_u = 1
+        self.fuzzifier = 1
 
-    def interval_distance(self, interval_index, cluster_index):
-        distance = 0
-        interval = self.data[interval_index]
-        prototype = self.prototype_vector[cluster_index]
+    def gaussian(self, data_index, cluster_index):
 
-        for p in range(len(interval)): # for each feature
-            distance += self.lower_boundary_weights[cluster_index][p]*(interval[p][0]-prototype[p][0])**2 + self.upper_boundary_weights[cluster_index][p]*(interval[p][1]-prototype[p][1])**2
+        sum_components = ((self.data[data_index]-self.prototype_vector[cluster_index])**2)*self.width_matrix[cluster_index]
+        gaussian = np.exp(-np.sum(sum_components, axis=2)/2)
 
-        return distance
+        return gaussian
 
     def objective_function(self):
+
         value = 0
 
-        for i in range(len(self.data)): # for each interval i
-            for k in range(len(self.prototype_vector)): # for each prototype k
+        #distance component
+        sum_components = ((self.data[:,np.newaxis,:]-self.prototype_vector[np.newaxis,:,:])**2)*self.width_matrix[np.newaxis,:,:]
+        gaussian = np.exp(-np.sum(sum_components, axis=2)/2)
+        value += 2*np.sum((self.membership_matrix ** self.fuzzifier) * (1-gaussian))
 
-                #distance component
-                for p in range(len(self.data[i])): # for each feature
-                    value += self.membership_matrix[i][k]*self.interval_distance(i, k)
-                #entropy component
-                if(self.membership_matrix[i][k] > 1e-10): value += self.T_u*self.membership_matrix[i][k]*np.log(self.membership_matrix[i][k]) #approx x*logx = 0 at x = 0
+        #entropy component
+        width_plus_1 = 1+self.width_matrix
+        value += self.T_w*np.sum(width_plus_1*np.log(width_plus_1))
 
         return value
 
-    def run(self, data, cluster_num, T_u=1, max_iterations=50, threshold=1e-10):
+    def run(self, data, cluster_num, T_w=1, fuzzifier=1, max_iterations=50, threshold=1e-10):
         random.seed()
 
         # Initialization
@@ -54,11 +52,11 @@ class ICMKmodel:
         feature_num = len(data[0]) # Supposes the dataset is set up correctly
         data_num = len(data)
         self.prototype_vector = []
-        self.lower_boundary_weights = np.ones((cluster_num,feature_num))#[[1 for row in range(feature_num)] for col in range(cluster_num)]
-        self.upper_boundary_weights = np.ones((cluster_num,feature_num))#[[1 for row in range(feature_num)] for col in range(cluster_num)]
+        self.width_matrix = np.ones((cluster_num,feature_num))/feature_num #[[1/p for row in range(feature_num)] for col in range(cluster_num)]
         self.membership_matrix = np.zeros((data_num, cluster_num))#[[0 for col in range(cluster_num)] for row in range(data_num)]
         self.adequacy_history = []
-        self.T_u = T_u
+        self.T_w = T_w
+        self.fuzzifier = fuzzifier
 
         t = 0
 
@@ -77,14 +75,17 @@ class ICMKmodel:
 
             t = t + 1
 
-            #representation step
+            #fuzzy cluster prototype computation (representation step)
+            sum_components = ((self.data[:,np.newaxis,:]-self.prototype_vector[np.newaxis,:,:])**2)*self.width_matrix[np.newaxis,:,:]
+            gaussian = np.exp(-np.sum(sum_components, axis=2)/2)
+            prototype_weights = (self.membership_matrix ** self.fuzzifier) * gaussian
 
-            for k in range(cluster_num):
-                if np.sum(self.membership_matrix[:,k]) > 1e-10: # check if it gets near zero
-                    self.prototype_vector[k,:,0] = np.average(data[:,:,0],axis = 0,weights=self.membership_matrix[:,k]) # lower bound
-                    self.prototype_vector[k,:,1] = np.average(data[:,:,1],axis = 0,weights=self.membership_matrix[:,k]) # upper bound
+            total_sum = prototype_weights @ data
+            weight_sum = prototype_weights.sum(axis=0)[:, np.newaxis]
 
-            #weighting step
+            self.prototype_vector = total_sum/weight_sum
+
+            #width parameter computation (weighting step)
             for k in range(cluster_num):
                 lower_distance = []
                 upper_distance = []
@@ -107,36 +108,39 @@ class ICMKmodel:
                     if(lower_distance[j] > 1e-10): self.lower_boundary_weights[k][j] = prod/lower_distance[j]
                     if(upper_distance[j] > 1e-10): self.upper_boundary_weights[k][j] = prod/upper_distance[j]
 
-            #allocation step
-            for i in range(data_num):
-                denominator = 0
-                for k in range(cluster_num):
-                    denominator += np.exp(-self.interval_distance(i, k)/self.T_u)
-                if denominator > 1e-10:
-                  for k in range(cluster_num):
-                      self.membership_matrix[i][k] = np.exp(-self.interval_distance(i, k)/self.T_u)/denominator
+            #membership degree computation (allocation step)
+
+            sum_components = ((self.data[:,np.newaxis,:]-self.prototype_vector[np.newaxis,:,:])**2)*self.width_matrix[np.newaxis,:,:]
+            membership_terms = 1 - np.exp(-np.sum(sum_components, axis=2)/2)
+
+            ratios = (membership_terms[:, :, np.newaxis]/membership_terms[:, np.newaxis, :])**(1 / (feature_num - 1))  # shape: (n_samples, cluster_num, cluster_num)
+            denominator = np.sum(ratios, axis=2)  # shape: (n_samples, cluster_num)
+            self.membership_matrix = 1/denominator
+
+            #history + stop condition
 
             self.adequacy_history.append(self.objective_function())
 
-            if(abs(self.adequacy_history[-1]-self.adequacy_history[-2]) < threshold): break;
+            if(abs(self.adequacy_history[-1]-self.adequacy_history[-2]) < threshold):
+                break
 
         return self
 
-    def run_many(self, data, cluster_num, T_u=1, max_iterations=50, reinitializations = 5, threshold=1e-10):
-        best_run = self.run(data, cluster_num, T_u, max_iterations, threshold)
+    def run_many(self, data, cluster_num, T_w=1, fuzzifier=1, max_iterations=50, reinitializations = 5, threshold=1e-10):
+        best_run = self.run(data, cluster_num, T_w, fuzzifier, max_iterations, threshold)
         while(reinitializations > 0):
-            trial_run = self.run(data, cluster_num, T_u, max_iterations, threshold)
+            trial_run = self.run(data, cluster_num, T_w, fuzzifier, max_iterations, threshold)
             if(best_run.adequacy_history[-1] > trial_run.adequacy_history[-1]): best_run = trial_run
             reinitializations = reinitializations - 1
 
         return best_run
 
-    def run_t(self, data, cluster_num, max_iterations=50, reinitializations = 5, interval = [0.05,1,0.05], threshold=1e-10):
+    def run_t(self, data, cluster_num, max_iterations=50, fuzzifier=1, reinitializations = 5, interval = [0.05,1,0.05], threshold=1e-10):
         start, finish, jump = interval
-        best_run = self.run_many(data, cluster_num, start, max_iterations, reinitializations, threshold)
+        best_run = self.run_many(data, cluster_num, start, fuzzifier, max_iterations, reinitializations, threshold)
         while(start < finish):
             start += jump
-            trial_run = self.run_many(data, cluster_num, start, max_iterations, reinitializations, threshold)
+            trial_run = self.run_many(data, cluster_num, start, fuzzifier, max_iterations, reinitializations, threshold)
             if(best_run.adequacy_history[-1] > trial_run.adequacy_history[-1]): best_run = trial_run
 
         return best_run
@@ -149,8 +153,7 @@ class ICMKmodel:
 
         max_index = np.argmax(self.membership_matrix, 1)
 
-        for num, cluster in enumerate(max_index):
-            hard_membership_matrix[num][cluster] = 1
+        hard_membership_matrix[np.arange(len(max_index)), max_index] = 1
 
         return hard_membership_matrix
 
@@ -175,7 +178,7 @@ class ICMKmodel:
             else:
                 print(f"ITERAÇÃO {k} - J: {self.adequacy_history[k-1]} -> {self.adequacy_history[k]}, AUMENTOU")
 
-def loaddotmat(filename):
+def loadintervaldotmat(filename):
     mat = scipy.io.loadmat(filename)
 
     structured_data = []
@@ -198,41 +201,41 @@ def rand_hullermeier(P, Q, true_class=False):
     The boolean flag true_class treats Q as a true class vector in a similar manner to true/prediction metrics.
     Source for implementation can be found on https://hal.science/hal-00734389v1/document.
     '''
-    
+
     distance = 0
     cluster_num = len(P[0])
     data_num = len(P)
-    
+
     if true_class is not True:
         for i, j in itertools.product(range(data_num), repeat=2):
             if i >= j:
                 continue # 1 <= i < j <= n condition
-            
+
             e_q, e_p = 0, 0
-            
+
             for cluster in range(cluster_num):
                 e_q += abs(Q[i][cluster]-Q[j][cluster])
                 e_p += abs(P[i][cluster]-P[j][cluster])
-            
+
             distance += abs(e_q - e_p)
-            
+
         return 1 - 2*distance/(data_num*(data_num-1))
 
     else:
         for i, j in itertools.product(range(data_num), repeat=2):
             if i >= j:
                 continue # 1 <= i < j <= n condition
-            
+
             e_q, e_p = 0, 0
-            
+
             e_q += 1 - int(Q[i]==Q[j])
             for cluster in range(cluster_num):
                 e_p += abs(P[i][cluster]-P[j][cluster])
-            
+
             distance += abs(e_q - e_p)
-            
+
         return 1 - 2*distance/(data_num*(data_num-1))
-    
+
 def rand_frigui(P, Q, true_class=False):
     '''
     Receives membership matrices P and Q to generate Frigui rand index.
@@ -243,45 +246,45 @@ def rand_frigui(P, Q, true_class=False):
     same_different = 0
     different_different = 0
     different_same = 0
-    
+
     cluster_num = len(P[0])
     data_num = len(P)
-    
+
     if true_class is not True:
         for i, j in itertools.product(range(data_num), repeat=2):
             if i >= j:
                 continue # 1 <= i < j <= n condition
-            
+
             psi1, psi2 = 0, 0
-            
+
             for cluster in range(cluster_num):
                 psi1 += P[i][cluster]*P[j][cluster]
                 psi2 += Q[i][cluster]*Q[j][cluster]
-            
+
             same_same += psi1*psi2
             same_different += psi1*(1-psi2)
             different_same += (1-psi1)*psi2
             different_different += (1-psi1)*(1-psi2)
-            
+
         return (same_same+different_different)/(same_same+same_different+different_same+different_different)
 
     else:
         for i, j in itertools.product(range(data_num), repeat=2):
             if i >= j:
                 continue # 1 <= i < j <= n condition
-            
+
             psi1, psi2 = 0, 0
-            
+
             for cluster in range(cluster_num):
                 psi1 += P[i][cluster]*P[j][cluster]
-            
+
             psi2 = int(Q[i]==Q[j])
-            
+
             same_same += psi1*psi2
             same_different += psi1*(1-psi2)
             different_same += (1-psi1)*psi2
             different_different += (1-psi1)*(1-psi2)
-            
+
         return (same_same+different_different)/(same_same+same_different+different_same+different_different)
 
 def main():

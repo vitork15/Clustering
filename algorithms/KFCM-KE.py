@@ -5,7 +5,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, adjusted_r
 import random
 import scipy.io
 import itertools
-from utils import metrics
+from utils.metrics import *
 
 
 class KFCM_KE:
@@ -43,7 +43,7 @@ class KFCM_KE:
 
         return value
 
-    def run(self, data, cluster_num, T_w=1, fuzzifier=1, max_iterations=50, threshold=1e-10):
+    def run(self, data, cluster_num, T_w=1, fuzzifier=1, max_iterations=200, threshold=1e-10):
         random.seed()
 
         # Initialization
@@ -73,41 +73,41 @@ class KFCM_KE:
         self.adequacy_history.append(self.objective_function()) # initial value of J
 
         while(t < max_iterations):
+            
+            #TODO Rename variables with better names 
 
             t = t + 1
+            
+            #width parameter computation (weighting step)
+            sum_components = ((self.data[:,np.newaxis,:]-self.prototype_vector[np.newaxis,:,:])**2)*self.width_matrix[np.newaxis,:,:]
+            gaussian = np.exp(-np.sum(sum_components, axis=2)/2)
+            width_sum = np.sum(((self.membership_matrix ** self.fuzzifier) * gaussian)[:,:,np.newaxis] * (self.data[:,np.newaxis,:]-self.prototype_vector[np.newaxis,:,:])**2, axis=0)
+            width_terms = np.exp(-(1/self.T_w)*width_sum)
+            width_sum_terms = np.sum(width_terms, axis=1)
+            
+            for k in range(cluster_num):
+                update_features = np.arange(feature_num)
+                update = True
+                while update:
+                    update = False
+                    for j in update_features:
+                        if(j != -1):
+                            width = (1 + len(update_features))*width_terms[k][j]/width_sum_terms[k]
+                            if width <= 0:
+                                update_features[j] = -1
+                                update = True
+                            else:
+                                self.width_matrix[k][j] = width
 
             #fuzzy cluster prototype computation (representation step)
             sum_components = ((self.data[:,np.newaxis,:]-self.prototype_vector[np.newaxis,:,:])**2)*self.width_matrix[np.newaxis,:,:]
             gaussian = np.exp(-np.sum(sum_components, axis=2)/2)
             prototype_weights = (self.membership_matrix ** self.fuzzifier) * gaussian
 
-            total_sum = prototype_weights @ data
-            weight_sum = prototype_weights.sum(axis=0)[:, np.newaxis]
+            total_sum = prototype_weights.T @ data
+            weight_sum = np.sum(prototype_weights, axis=0)[:, np.newaxis]
 
-            self.prototype_vector = total_sum/weight_sum
-
-            #width parameter computation (weighting step)
-            for k in range(cluster_num):
-                lower_distance = []
-                upper_distance = []
-                for j in range(feature_num):
-                    lower_value = 0
-                    upper_value = 0
-                    for i in range(data_num):
-                        lower_value += self.membership_matrix[i][k]*(self.data[i][j][0]-self.prototype_vector[k][j][0])**2
-                        upper_value += self.membership_matrix[i][k]*(self.data[i][j][1]-self.prototype_vector[k][j][1])**2
-                    lower_distance.append(lower_value)
-                    upper_distance.append(upper_value)
-
-                for j in range(feature_num):
-                    prod = 1
-                    prod *= (lower_distance[j])**(1/(2*feature_num))
-                    prod *= (upper_distance[j])**(1/(2*feature_num))
-
-                for j in range(feature_num):
-                    # if division by zero is found, ignore until next step
-                    if(lower_distance[j] > 1e-10): self.lower_boundary_weights[k][j] = prod/lower_distance[j]
-                    if(upper_distance[j] > 1e-10): self.upper_boundary_weights[k][j] = prod/upper_distance[j]
+            self.prototype_vector = total_sum/weight_sum         
 
             #membership degree computation (allocation step)
 
@@ -127,7 +127,7 @@ class KFCM_KE:
 
         return self
 
-    def run_many(self, data, cluster_num, T_w=1, fuzzifier=1, max_iterations=50, reinitializations = 5, threshold=1e-10):
+    def run_many(self, data, cluster_num, T_w=1, fuzzifier=1, max_iterations=200, reinitializations = 30, threshold=1e-10):
         best_run = self.run(data, cluster_num, T_w, fuzzifier, max_iterations, threshold)
         while(reinitializations > 0):
             trial_run = self.run(data, cluster_num, T_w, fuzzifier, max_iterations, threshold)
@@ -136,7 +136,7 @@ class KFCM_KE:
 
         return best_run
 
-    def run_t(self, data, cluster_num, max_iterations=50, fuzzifier=1, reinitializations = 5, interval = [0.05,1,0.05], threshold=1e-10):
+    def run_t(self, data, cluster_num, max_iterations=50, fuzzifier=1, reinitializations = 30, interval = [0.05,1,0.05], threshold=1e-10):
         start, finish, jump = interval
         best_run = self.run_many(data, cluster_num, start, fuzzifier, max_iterations, reinitializations, threshold)
         while(start < finish):
@@ -196,105 +196,15 @@ def loadintervaldotmat(filename):
 
     return np.array(structured_data), classes
 
-def rand_hullermeier(P, Q, true_class=False):
-    '''
-    Receives membership matrices P and Q to generate Hullemeier rand index using L¹ metric.
-    The boolean flag true_class treats Q as a true class vector in a similar manner to true/prediction metrics.
-    Source for implementation can be found on https://hal.science/hal-00734389v1/document.
-    '''
-
-    distance = 0
-    cluster_num = len(P[0])
-    data_num = len(P)
-
-    if true_class is not True:
-        for i, j in itertools.product(range(data_num), repeat=2):
-            if i >= j:
-                continue # 1 <= i < j <= n condition
-
-            e_q, e_p = 0, 0
-
-            for cluster in range(cluster_num):
-                e_q += abs(Q[i][cluster]-Q[j][cluster])
-                e_p += abs(P[i][cluster]-P[j][cluster])
-
-            distance += abs(e_q - e_p)
-
-        return 1 - 2*distance/(data_num*(data_num-1))
-
-    else:
-        for i, j in itertools.product(range(data_num), repeat=2):
-            if i >= j:
-                continue # 1 <= i < j <= n condition
-
-            e_q, e_p = 0, 0
-
-            e_q += 1 - int(Q[i]==Q[j])
-            for cluster in range(cluster_num):
-                e_p += abs(P[i][cluster]-P[j][cluster])
-
-            distance += abs(e_q - e_p)
-
-        return 1 - 2*distance/(data_num*(data_num-1))
-
-def rand_frigui(P, Q, true_class=False):
-    '''
-    Receives membership matrices P and Q to generate Frigui rand index.
-    The boolean flag true_class treats Q as a true class vector in a similar manner to true/prediction metrics.
-    '''
-    # these variables are similar to TP, FN, TN and FP
-    same_same = 0
-    same_different = 0
-    different_different = 0
-    different_same = 0
-
-    cluster_num = len(P[0])
-    data_num = len(P)
-
-    if true_class is not True:
-        for i, j in itertools.product(range(data_num), repeat=2):
-            if i >= j:
-                continue # 1 <= i < j <= n condition
-
-            psi1, psi2 = 0, 0
-
-            for cluster in range(cluster_num):
-                psi1 += P[i][cluster]*P[j][cluster]
-                psi2 += Q[i][cluster]*Q[j][cluster]
-
-            same_same += psi1*psi2
-            same_different += psi1*(1-psi2)
-            different_same += (1-psi1)*psi2
-            different_different += (1-psi1)*(1-psi2)
-
-        return (same_same+different_different)/(same_same+same_different+different_same+different_different)
-
-    else:
-        for i, j in itertools.product(range(data_num), repeat=2):
-            if i >= j:
-                continue # 1 <= i < j <= n condition
-
-            psi1, psi2 = 0, 0
-
-            for cluster in range(cluster_num):
-                psi1 += P[i][cluster]*P[j][cluster]
-
-            psi2 = int(Q[i]==Q[j])
-
-            same_same += psi1*psi2
-            same_different += psi1*(1-psi2)
-            different_same += (1-psi1)*psi2
-            different_different += (1-psi1)*(1-psi2)
-
-        return (same_same+different_different)/(same_same+same_different+different_same+different_different)
-
 def main():
-
-    data, classes = loaddotmat('Wine.mat')
+    
+    iris = sk.load_iris()
+    data = np.array(iris['data'])
+    classes = iris['target']
+    
     class_labels = np.unique(classes)
-    model = ICMKmodel()
-    model = model.run_t(data, max(classes), max_iterations=300, reinitializations=30, interval=[1,100,0.5])
-    #model = model.run(data, max(classes), max_iterations=100, T_u = 0.1)
+    model = KFCM_KE()
+    model = model.run_many(data, 3, T_w=40, fuzzifier=1.1, reinitializations=60)
 
     model.analyze()
 

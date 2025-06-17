@@ -2,45 +2,44 @@ import numpy as np
 import itertools
 
 def rand_hullermeier(P, Q, true_class=False):
-    '''
-    Receives membership matrices P and Q to generate Hullemeier rand index using L¹ metric.
-    The boolean flag true_class treats Q as a true class vector in a similar manner to true/prediction metrics.
+    """
+    Computes the Hüllermeier Rand Index using L¹ metric for fuzzy or hard clusterings.
+    
     Source for implementation can be found on https://hal.science/hal-00734389v1/document.
-    '''
+    
+    Parameters
+    ----------
+        P, Q : ndarray
+            Fuzzy membership matrices of the clusters to be compared.
+        true_class : bool, default True
+            If true_class is True, the function treats Q as a true label vector instead of a membership matrix.
 
-    distance = 0
-    cluster_num = len(P[0])
-    data_num = len(P)
+    Returns
+    -------
+    float
+        Hüllermeier Rand Index
+    """
+    n_data = P.shape[0]
 
-    if true_class is not True:
-        for i, j in itertools.product(range(data_num), repeat=2):
-            if i >= j:
-                continue # 1 <= i < j <= n condition
+    # Compute pairwise L1 distances for P
+    P_diff = np.abs(P[:, np.newaxis, :] - P[np.newaxis, :, :]).sum(axis=2)
 
-            e_q, e_p = 0, 0
-
-            for cluster in range(cluster_num):
-                e_q += abs(Q[i][cluster]-Q[j][cluster])
-                e_p += abs(P[i][cluster]-P[j][cluster])
-
-            distance += abs(e_q - e_p)
-
-        return 1 - 2*distance/(data_num*(data_num-1))
-
+    if not true_class:
+        # Compute pairwise L1 distances for Q
+        Q_diff = np.abs(Q[:, np.newaxis, :] - Q[np.newaxis, :, :]).sum(axis=2)
     else:
-        for i, j in itertools.product(range(data_num), repeat=2):
-            if i >= j:
-                continue # 1 <= i < j <= n condition
+        # Hard class case: Q is a label vector
+        Q_diff = (Q[:, np.newaxis] != Q[np.newaxis, :]).astype(float)  # 1 if different, 0 if same
 
-            e_q, e_p = 0, 0
+    # Compute matrix of |E_q - E_p| = ||P(x)-P(x')|-|Q(x)-Q(x')||
+    diff = np.abs(Q_diff - P_diff)
 
-            e_q += 1 - int(Q[i]==Q[j])
-            for cluster in range(cluster_num):
-                e_p += abs(P[i][cluster]-P[j][cluster])
+    # Only keep indices such that i < j
+    triu_indices = np.triu_indices(n_data, k=1)
+    total = diff[triu_indices].sum()
 
-            distance += abs(e_q - e_p)
-
-        return 1 - 2*distance/(data_num*(data_num-1))
+    # Final index
+    return 1 - (2 * total) / (n_data * (n_data - 1))
 
 def rand_frigui(P, Q, true_class=False):
     '''

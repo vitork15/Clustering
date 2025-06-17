@@ -18,7 +18,7 @@ class KFCM_KE:
         self.data = []
         self.cluster_num = 0
         self.adequacy_history = [] # Saves the history of the adequacy criterion over the steps
-        self.T_u = 1
+        self.T_w = 1
         self.fuzzifier = 1
 
     def gaussian(self, data_index, cluster_index):
@@ -178,23 +178,6 @@ class KFCM_KE:
                 print(f"ITERAÇÃO {k} - J: {self.adequacy_history[k-1]} -> {self.adequacy_history[k]}, DIMINUIU")
             else:
                 print(f"ITERAÇÃO {k} - J: {self.adequacy_history[k-1]} -> {self.adequacy_history[k]}, AUMENTOU")
-
-def loadintervaldotmat(filename):
-    mat = scipy.io.loadmat(filename)
-
-    structured_data = []
-    classes = []
-
-    for array in mat['data']:
-        data_point = []
-
-        for i in range(1,len(array),2):
-            data_point.append(np.array([array[i],array[i+1]], dtype='float64'))
-
-        structured_data.append(data_point)
-        classes.append(int(array[0]))
-
-    return np.array(structured_data), classes
 
 def main():
     

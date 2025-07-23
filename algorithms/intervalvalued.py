@@ -6,13 +6,13 @@ import random
 import scipy.io
 import itertools
 from utils.metrics import *
+from utils.preprocessing import *
 
 
 class AIFCM_ER:
 
     def __init__(self):
         self.prototype_vector = []
-        #self.global_prototype = None
         self.membership_matrix = []
         self.weight_matrix = []
         self.data = []
@@ -176,16 +176,17 @@ def loadintervaldotmat(filename):
 def main():
     
     data, classes = loadintervaldotmat('../datasets/Car.mat')
+    data = normalize_interval(data)
     
     class_labels = np.unique(classes)
     model = AIFCM_ER()
-    model = model.run_many(data, len(class_labels), T_u=2e4, reinitializations=500)
+    model = model.run_many(data, len(class_labels), T_u=88, reinitializations=500)
 
     model.analyze()
 
     print(f"RAND SCORE AJUSTADO: ", adjusted_rand_score(classes, class_labels[model.predict()]))
     print(f"RAND HULLERMEIER: ", rand_hullermeier(model.membership_matrix, classes, true_class=True))
-    print(f"RAND FRIGUI: ", rand_frigui(model.membership_matrix, classes, true_class=True))
+    print(f"RAND FRIGUI: ", rand_frigui(model.membership_matrix, classes))
 
     cm = model.confusion_matrix(classes)
     disp = ConfusionMatrixDisplay(cm, display_labels=range(model.cluster_num))

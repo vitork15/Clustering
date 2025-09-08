@@ -8,13 +8,273 @@ import itertools
 from utils.metrics import *
 from utils.preprocessing import *
 
+class IFCM:
+
+    def __init__(self):
+        self.prototype_vector = []
+        self.membership_matrix = []
+        self.weight_vector = []
+        self.data = []
+        self.cluster_num = 0
+        self.adequacy_history = [] # Saves the history of the adequacy criterion over the steps
+        self.fuzzifier = 1
+
+    def objective_function(self):
+
+        value = 0
+
+        #distance component
+        lower_components = ((self.data[:,np.newaxis,:,0]-self.prototype_vector[np.newaxis,:,:,0])**2)
+        upper_components = ((self.data[:,np.newaxis,:,1]-self.prototype_vector[np.newaxis,:,:,1])**2)
+        value += np.sum((self.membership_matrix**self.fuzzifier) * np.sum(lower_components + upper_components, axis=2))
+
+        return value
+
+    def run(self, data, cluster_num, fuzzifier=1, max_iterations=200, threshold=1e-10):
+        random.seed()
+
+        # Initialization
+
+        self.data = data
+        self.cluster_num = cluster_num
+        feature_num = data.shape[1] # Supposes the dataset is set up correctly
+        data_num = data.shape[0]
+        self.prototype_vector = []
+        self.weight_vector = np.ones((cluster_num,feature_num)) #[[1/p for row in range(feature_num)] for col in range(cluster_num)]
+        self.membership_matrix = np.zeros((data_num, cluster_num))#[[0 for col in range(cluster_num)] for row in range(data_num)]
+        self.adequacy_history = []
+        self.fuzzifier = fuzzifier
+
+        t = 0
+
+        starting_prototypes = random.sample(range(data_num), cluster_num)
+        self.prototype_vector = data[starting_prototypes].copy()
+
+        starting_membership = random.choices(range(cluster_num), k=data_num)
+        for i, k in enumerate(starting_membership):
+            self.membership_matrix[i][k] = 1
+
+        self.adequacy_history.append(self.objective_function()) # initial value of J
+
+        while(t < max_iterations):
+
+            t = t + 1
+
+            #fuzzy cluster prototype computation (representation step)
+
+            weight_sums = np.sum(self.membership_matrix ** self.fuzzifier, axis=0) 
+            valid_clusters = weight_sums > 1e-10  # check zero division
+            if np.any(valid_clusters): # check if not empty
+                for bound in range(2):
+                    weighted_sum = (self.membership_matrix.T ** self.fuzzifier) @ data[:, :, bound] 
+                    self.prototype_vector[valid_clusters, :, bound] = weighted_sum[valid_clusters] / weight_sums[valid_clusters, np.newaxis]
+            
+            #membership degree computation (allocation step)
+
+            dist = np.sum((data[:, np.newaxis, :, :] - self.prototype_vector[np.newaxis, :, :, :])**2, axis=(2, 3))
+            for k in range(data_num): 
+                zeros = (dist[k] <= 1e-10)
+
+                if np.any(zeros):
+                    self.membership_matrix[k, zeros] = 1.0 / len(zeros)
+                    self.membership_matrix[k, ~zeros] = 0.0
+                    
+                else:
+                    self.membership_matrix[k] = 1.0 / np.sum((dist[k, :, np.newaxis] / dist[k, np.newaxis, :]) ** (1 / (self.fuzzifier - 1)), axis=1)
+
+            #history + stop condition
+
+            self.adequacy_history.append(self.objective_function())
+
+            if(abs(self.adequacy_history[-1]-self.adequacy_history[-2]) < threshold):
+                break
+
+        return self
+
+    def run_many(self, data, cluster_num, fuzzifier=1.5, max_iterations=50, reinitializations = 30, threshold=1e-5):
+        best_run = self.run(data, cluster_num, fuzzifier, max_iterations, threshold)
+        while(reinitializations > 0):
+            trial_run = self.run(data, cluster_num, fuzzifier, max_iterations, threshold)
+            if(best_run.adequacy_history[-1] > trial_run.adequacy_history[-1]): best_run = trial_run
+            reinitializations = reinitializations - 1
+
+        return best_run
+
+    def crispy_membership(self):
+        '''
+        Converts the fuzzy membership matrix U into a discrete one
+        '''
+        hard_membership_matrix = np.zeros((len(self.data), self.cluster_num))
+
+        max_index = np.argmax(self.membership_matrix, axis=1)
+
+        hard_membership_matrix[np.arange(len(max_index)), max_index] = 1
+
+        return hard_membership_matrix
+
+    def confusion_matrix(self, true_classes):
+
+        true_classes_index = np.unique(true_classes)
+
+        pred = true_classes_index[self.predict()]
+        cm = confusion_matrix(true_classes, pred, labels=true_classes_index)
+
+        return cm
+
+    def predict(self):
+        prediction = np.argmax(self.membership_matrix, axis=1)
+        return prediction
+
+    def analyze(self):
+        print(f"J INICIAL: {self.adequacy_history[0]}")
+        for k in range(1,len(self.adequacy_history)):
+            if(self.adequacy_history[k-1]>self.adequacy_history[k]):
+                print(f"ITERAÇÃO {k} - J: {self.adequacy_history[k-1]} -> {self.adequacy_history[k]}, DIMINUIU")
+            elif(self.adequacy_history[k-1]==self.adequacy_history[k]):
+                print(f"ITERAÇÃO {k} - J: {self.adequacy_history[k-1]} -> {self.adequacy_history[k]}, MANTEVE")
+            else:
+                print(f"ITERAÇÃO {k} - J: {self.adequacy_history[k-1]} -> {self.adequacy_history[k]}, AUMENTOU")
+
+class IFCMADC:
+
+    def __init__(self):
+        self.prototype_vector = []
+        self.membership_matrix = []
+        self.weight_vector = []
+        self.data = []
+        self.cluster_num = 0
+        self.adequacy_history = [] # Saves the history of the adequacy criterion over the steps
+        self.fuzzifier = 1
+
+    def objective_function(self):
+
+        value = 0
+
+        #distance component
+        lower_components = ((self.data[:,np.newaxis,:,0]-self.prototype_vector[np.newaxis,:,:,0])**2)*self.weight_vector[np.newaxis,:,:]
+        upper_components = ((self.data[:,np.newaxis,:,1]-self.prototype_vector[np.newaxis,:,:,1])**2)*self.weight_vector[np.newaxis,:,:]
+        value += np.sum((self.membership_matrix**self.fuzzifier) * np.sum(lower_components + upper_components, axis=2))
+
+        return value
+
+    def run(self, data, cluster_num, fuzzifier=1, max_iterations=200, threshold=1e-10):
+        random.seed()
+
+        # Initialization
+
+        self.data = data
+        self.cluster_num = cluster_num
+        feature_num = data.shape[1] # Supposes the dataset is set up correctly
+        data_num = data.shape[0]
+        self.prototype_vector = []
+        self.weight_vector = np.ones((cluster_num,feature_num)) #[[1/p for row in range(feature_num)] for col in range(cluster_num)]
+        self.membership_matrix = np.zeros((data_num, cluster_num))#[[0 for col in range(cluster_num)] for row in range(data_num)]
+        self.adequacy_history = []
+        self.fuzzifier = fuzzifier
+
+        t = 0
+
+        starting_prototypes = random.sample(range(data_num), cluster_num)
+        self.prototype_vector = data[starting_prototypes].copy()
+
+        starting_membership = random.choices(range(cluster_num), k=data_num)
+        for i, k in enumerate(starting_membership):
+            self.membership_matrix[i][k] = 1
+
+        self.adequacy_history.append(self.objective_function()) # initial value of J
+
+        while(t < max_iterations):
+
+            t = t + 1
+
+            #fuzzy cluster prototype computation (representation step)
+
+            weight_sums = np.sum(self.membership_matrix ** self.fuzzifier, axis=0) 
+            valid_clusters = weight_sums > 1e-10  # check zero division
+            if np.any(valid_clusters): # check if not empty
+                for bound in range(2):
+                    weighted_sum = (self.membership_matrix.T ** self.fuzzifier) @ data[:, :, bound] 
+                    self.prototype_vector[valid_clusters, :, bound] = weighted_sum[valid_clusters] / weight_sums[valid_clusters, np.newaxis]
+                
+            #width parameter computation (weighting step)
+            
+            lower_components = np.sum(((self.data[:,np.newaxis,:,0]-self.prototype_vector[np.newaxis,:,:,0])**2)*self.membership_matrix[:,:,np.newaxis], axis=0)
+            upper_components = np.sum(((self.data[:,np.newaxis,:,1]-self.prototype_vector[np.newaxis,:,:,1])**2)*self.membership_matrix[:,:,np.newaxis], axis=0)
+            numerator = np.prod(lower_components+upper_components, axis=1)**(1/feature_num)
+
+            np.divide(numerator[:, np.newaxis], lower_components+upper_components, out=self.weight_vector, where=lower_components > 1e-10)
+            
+            #membership degree computation (allocation step)
+
+            dist = np.sum(self.weight_vector[np.newaxis, :, :, np.newaxis] * (data[:, np.newaxis, :, :] - self.prototype_vector[np.newaxis, :, :, :])**2, axis=(2, 3))
+            for k in range(data_num): 
+                zeros = (dist[k] <= 1e-10)
+
+                if np.any(zeros):
+                    self.membership_matrix[k, zeros] = 1.0 / len(zeros)
+                    self.membership_matrix[k, ~zeros] = 0.0
+                    
+                else:
+                    self.membership_matrix[k] = 1.0 / np.sum((dist[k, :, np.newaxis] / dist[k, np.newaxis, :]) ** (1 / (self.fuzzifier - 1)), axis=1)
+
+            #history + stop condition
+
+            self.adequacy_history.append(self.objective_function())
+
+            if(abs(self.adequacy_history[-1]-self.adequacy_history[-2]) < threshold):
+                break
+
+        return self
+
+    def run_many(self, data, cluster_num, fuzzifier=1.5, max_iterations=50, reinitializations = 30, threshold=1e-5):
+        best_run = self.run(data, cluster_num, fuzzifier, max_iterations, threshold)
+        while(reinitializations > 0):
+            trial_run = self.run(data, cluster_num, fuzzifier, max_iterations, threshold)
+            if(best_run.adequacy_history[-1] > trial_run.adequacy_history[-1]): best_run = trial_run
+            reinitializations = reinitializations - 1
+
+        return best_run
+
+    def crispy_membership(self):
+        '''
+        Converts the fuzzy membership matrix U into a discrete one
+        '''
+        hard_membership_matrix = np.zeros((len(self.data), self.cluster_num))
+
+        max_index = np.argmax(self.membership_matrix, axis=1)
+
+        hard_membership_matrix[np.arange(len(max_index)), max_index] = 1
+
+        return hard_membership_matrix
+
+    def confusion_matrix(self, true_classes):
+
+        true_classes_index = np.unique(true_classes)
+
+        pred = true_classes_index[self.predict()]
+        cm = confusion_matrix(true_classes, pred, labels=true_classes_index)
+
+        return cm
+
+    def predict(self):
+        prediction = np.argmax(self.membership_matrix, axis=1)
+        return prediction
+
+    def analyze(self):
+        print(f"J INICIAL: {self.adequacy_history[0]}")
+        for k in range(1,len(self.adequacy_history)):
+            if(self.adequacy_history[k-1]>self.adequacy_history[k]):
+                print(f"ITERAÇÃO {k} - J: {self.adequacy_history[k-1]} -> {self.adequacy_history[k]}, DIMINUIU")
+            elif(self.adequacy_history[k-1]==self.adequacy_history[k]):
+                print(f"ITERAÇÃO {k} - J: {self.adequacy_history[k-1]} -> {self.adequacy_history[k]}, MANTEVE")
+            else:
+                print(f"ITERAÇÃO {k} - J: {self.adequacy_history[k-1]} -> {self.adequacy_history[k]}, AUMENTOU")
 
 class AIFCM_ER:
 
     def __init__(self):
         self.prototype_vector = []
         self.membership_matrix = []
-        self.weight_matrix = []
         self.data = []
         self.cluster_num = 0
         self.adequacy_history = [] # Saves the history of the adequacy criterion over the steps
@@ -34,6 +294,15 @@ class AIFCM_ER:
         value += self.T_u*np.sum(self.membership_matrix[not_zero]*np.log(self.membership_matrix[not_zero])) #xlogx is approx 0 at x=0
 
         return value
+    
+    def minimum_centroid_distance(self):
+        
+        lower_components = ((self.prototype_vector[:,np.newaxis,:,0]-self.prototype_vector[np.newaxis,:,:,0])**2)*self.lower_weight_matrix[np.newaxis,:,:]
+        upper_components = ((self.prototype_vector[:,np.newaxis,:,1]-self.prototype_vector[np.newaxis,:,:,1])**2)*self.upper_weight_matrix[np.newaxis,:,:]
+        distances = np.sum(lower_components + upper_components, axis=2)
+        np.fill_diagonal(distances, np.inf)
+        
+        return np.min(distances)
 
     def run(self, data, cluster_num, T_u=1, max_iterations=200, threshold=1e-10):
         random.seed()
@@ -75,7 +344,7 @@ class AIFCM_ER:
                     weighted_sum = self.membership_matrix.T @ data[:, :, bound] 
                     self.prototype_vector[valid_clusters, :, bound] = weighted_sum[valid_clusters] / weight_sums[valid_clusters, np.newaxis]
                 
-            #width parameter computation (weighting step), not implemented for testing
+            #width parameter computation (weighting step)
             
             lower_components = np.sum(((self.data[:,np.newaxis,:,0]-self.prototype_vector[np.newaxis,:,:,0])**2)*self.membership_matrix[:,:,np.newaxis], axis=0)
             upper_components = np.sum(((self.data[:,np.newaxis,:,1]-self.prototype_vector[np.newaxis,:,:,1])**2)*self.membership_matrix[:,:,np.newaxis], axis=0)
@@ -105,7 +374,7 @@ class AIFCM_ER:
 
         return self
 
-    def run_many(self, data, cluster_num, T_u=1, max_iterations=200, reinitializations = 30, threshold=1e-10):
+    def run_many(self, data, cluster_num, T_u=1, max_iterations=50, reinitializations = 30, threshold=1e-5):
         best_run = self.run(data, cluster_num, T_u, max_iterations, threshold)
         while(reinitializations > 0):
             trial_run = self.run(data, cluster_num, T_u, max_iterations, threshold)
@@ -114,13 +383,16 @@ class AIFCM_ER:
 
         return best_run
 
-    def run_t(self, data, cluster_num, max_iterations=200, reinitializations = 30, interval = [0.05,1,0.05], threshold=1e-10):
-        start, finish, jump = interval
+    def grid_search(self, data, cluster_num, max_iterations=50, reinitializations=30, search=[1e-2,100,1e-2], threshold=1e-5):
+        start, finish, jump = search
         best_run = self.run_many(data, cluster_num, start, max_iterations, reinitializations, threshold)
         while(start < finish):
             start += jump
             trial_run = self.run_many(data, cluster_num, start, max_iterations, reinitializations, threshold)
-            if(best_run.adequacy_history[-1] > trial_run.adequacy_history[-1]): best_run = trial_run
+            if(trial_run.minimum_centroid_distance() <= 0.1): 
+                start += jump
+                best_run = self.run_many(data, cluster_num, start, max_iterations, reinitializations, threshold)
+                break
 
         return best_run
 
@@ -175,18 +447,20 @@ def loadintervaldotmat(filename):
 
 def main():
     
-    data, classes = loadintervaldotmat('../datasets/Car.mat')
+    data, classes = loadintervaldotmat('../datasets/Horses.mat')
     data = normalize_interval(data)
     
     class_labels = np.unique(classes)
     model = AIFCM_ER()
-    model = model.run_many(data, len(class_labels), T_u=88, reinitializations=500)
+    model = model.grid_search(data, len(class_labels), search=[1e-2,100,1e-2])
 
     model.analyze()
 
-    print(f"RAND SCORE AJUSTADO: ", adjusted_rand_score(classes, class_labels[model.predict()]))
+    print(f"FUZZY RAND INDEX: ", fuzzy_rand_index(model.membership_matrix, classes))
     print(f"RAND HULLERMEIER: ", rand_hullermeier(model.membership_matrix, classes, true_class=True))
-    print(f"RAND FRIGUI: ", rand_frigui(model.membership_matrix, classes))
+    print(f"ADJUSTED RAND INDEX: ", adjusted_rand_score(classes, class_labels[model.predict()]))
+    print(f"F1-MEASURE: ", fuzzy_F1_measure(model.crispy_membership(), classes)) # using hard membership
+    print(f"T_u: {model.T_u}") 
 
     cm = model.confusion_matrix(classes)
     disp = ConfusionMatrixDisplay(cm, display_labels=range(model.cluster_num))

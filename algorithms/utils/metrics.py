@@ -20,25 +20,20 @@ def rand_hullermeier(P, Q, true_class=False):
     """
     n_data = P.shape[0]
 
-    # Compute pairwise L1 distances for P
-    P_diff = np.abs(P[:, np.newaxis, :] - P[np.newaxis, :, :]).sum(axis=2)
+    distances_P = np.abs(P[:, np.newaxis, :] - P[np.newaxis, :, :]).sum(axis=2)
+    equivalence_P = 1 - 0.5 * distances_P
 
     if not true_class:
-        # Compute pairwise L1 distances for Q
-        Q_diff = np.abs(Q[:, np.newaxis, :] - Q[np.newaxis, :, :]).sum(axis=2)
+        distances_Q = np.abs(Q[:, np.newaxis, :] - Q[np.newaxis, :, :]).sum(axis=2)
+        equivalence_Q = 1 - 0.5 * distances_Q
     else:
-        # Hard class case: Q is a label vector
-        Q_diff = (Q[:, np.newaxis] != Q[np.newaxis, :]).astype(float)  # 1 if different, 0 if same
+        equivalence_Q = (Q[:, np.newaxis] == Q[np.newaxis, :]).astype(float)
 
-    # Compute matrix of |E_q - E_p| = ||P(x)-P(x')|-|Q(x)-Q(x')||
-    diff = np.abs(Q_diff - P_diff)
-
-    # Only keep indices such that i < j
+    # Only upper triangle indices (i < j)
     triu_indices = np.triu_indices(n_data, k=1)
-    total = diff[triu_indices].sum()
+    discordances = np.abs(equivalence_P[triu_indices] - equivalence_Q[triu_indices])
 
-    # Final index
-    return 1 - (2 * total) / (n_data * (n_data - 1))
+    return 1 - discordances.sum() / (n_data * (n_data - 1) / 2)
     
 def pairwise_counts(P, Q):
     """
@@ -88,9 +83,9 @@ def pairwise_counts(P, Q):
     return same_same, same_different, different_same, different_different
 
 
-def rand_frigui(P, Q):
+def fuzzy_rand_index(P, Q):
     """
-    Receives membership matrices P and Q and outputs Frigui Rand index.
+    Receives membership matrices P and Q and outputs fuzzy Rand index.
     
     Parameters
     ----------
@@ -102,9 +97,30 @@ def rand_frigui(P, Q):
     Returns
     -------
     float
-        Frigui Rand index.
+        Fuzzy Rand index.
     """
     same_same, same_different, different_same, different_different = pairwise_counts(P, Q)
 
     total = same_same + same_different + different_same + different_different
     return (same_same + different_different) / total if total != 0 else 0.0
+
+def fuzzy_F1_measure(P, Q):
+    """
+    Receives membership matrices P and Q and outputs the fuzzy F1-measure. For hard clusterings, it's equivalent to the F1-measure.
+    
+    Parameters
+    ----------
+    P : ndarray
+        Membership matrix.
+    Q : ndarray
+        Membership matrix or label vector.
+
+    Returns
+    -------
+    float
+        Fuzzy F1-measure.
+    """
+    same_same, same_different, different_same, different_different = pairwise_counts(P, Q)
+
+    denominator = 2*same_same + different_same + same_different
+    return 2*same_same / denominator if denominator != 0 else 0.0
